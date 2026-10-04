@@ -1,217 +1,78 @@
-import qianfan
-import streamlit as st
 import json
+import os
 
-def get_current_temperature(location: str, unit: str) -> dict:
-    return {'temperature': 25, 'unit': '摄氏度'}
+import pandas as pd
+import streamlit as st
 
-def extract_employee_info(name: str,department: str,certificate:str,id:int)-> dict:
-    """
-    This function extracts the information of an employee and sort it into correct format, and updates the employee_list_df dataframe.
-    """
-    #new_row = {name: str, department: str, certificate: str, id: str} 
-    #employee_list_df.append(new_row, ignore_index=True)
-    return {'result': True}
+from agent import make_qianfan_caller, run_conversation
+from tools import build_registry
 
-def delivery_inquiry(location: str, expect_price: int) -> dict:
-    return {'id': 20, 'price': '50', 'food': '肯德基疯狂星期四'}
+EXAMPLE_PROMPTS = [
+    "114514+973580等于多少？",
+    "南京路街道附近50元以内的午餐有哪些推荐？",
+    "肯德基疯狂星期四不错，就买这个20号的肯德基疯狂星期四了",
+    "新入职员工李红在HR部门工作，她有研究生文凭。她的工号是918604。",
+    "张三的工号是114514，他本科毕业，在技术部工作。",
+    "深圳市今天气温如何？",
+]
+MODELS = ["ERNIE-3.5-8K", "ERNIE-4.0-8K", "ERNIE-Speed-8K"]
 
-def delivery_order(id: str, food: str) -> dict:
-    return {'result': True}
+st.set_page_config(page_title="千帆 Function Calling", page_icon="🛠️")
+st.title("🛠️ 千帆 Function Calling 演示")
 
-def eb_call(prompt,round,messages):
-    st.write(prompt)
-    st.write('-' * 20,' Output ', '-'*20,"\n")
+if "history" not in st.session_state:
+    st.session_state.history = []
+if "employees" not in st.session_state:
+    st.session_state.employees = []
 
-    response = chat_comp.do(
-        model="ERNIE-Bot", 
-        messages=messages,
-        temperature=0.01,
-        functions=[
-            {
-                "name": "delivery_inquiry",
-                "description": "查询商品",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "location": {
-                            "type": "string",
-                            "description": "地址信息，包括街道、门牌号、城市、省份等信息"
-                            },
-                        "expect_price": {
-                            "type": "int",
-                            "description": "期望的价格"
-                            }
-                        },
-                    "required": ["location"]
-                    },
-                "responses": {
-                    "type": "object",
-                    "properties": {
-                        "id": {
-                            "type": "string",
-                            "description": "商品id"
-                            },
-                        "price": {
-                            "type": "int",
-                            "description": "商品价格"
-                            },
-                        "food": {
-                            "type": "string",
-                            "description": "商品名称"
-                            },
-                        },
-                    },
-            },
-            {
-                "name": "delivery_order",
-                "description": "外卖下单",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "id": {
-                            "type": "string",
-                            "description": "商品id"
-                            },
-                        "food": {
-                            "type": "string",
-                            "description": "商品名称"
-                            },
-                        },
-                    "required": ["id"]
-                    },
-                "responses": {
-                    "type": "object",
-                    "properties": {
-                        "result": {
-                            "type": "string",
-                            "description": "是否下单成功"
-                            },
-                        }
-                    },
-            },
-            {
-                'name': 'extract_employee_info',
-                'description': '将员工信息录入。',
-                'parameters': {
-                    'type': 'object',
-                    'properties': {
-                        'name': {
-                            'type': 'string',
-                            'description': '姓名'
-                        },
-                        'department': {
-                            'type': 'string',
-                            'description': '部门'
-                        },
-                        'certificate': {
-                            'type': 'string',
-                            'description': '学历文聘'
-                        },
-                        'id': {
-                            'type': 'string',
-                            'description': '工号 '
-                        }
-                        
-                    }
-                },
-                "responses": {
-                    "type": "object",
-                    "properties": {
-                        "result": {
-                            "type": "string",
-                            "description": "是否录入员工信息成功"
-                            },
-                        }
-                    },
-            },
-            {
-                'name': 'get_current_temperature',
-                'description': "获取指定城市的气温",
-                'parameters': {
-                    'type': 'object',
-                    'properties': {
-                        'location': {
-                            'type': 'string',
-                            'description': "城市名称",
-                        },
-                        'unit': {
-                            'type': 'string',
-                            'enum': [
-                                '摄氏度',
-                                '华氏度',
-                            ],
-                        },
-                    },
-                    'required': [
-                        'location',
-                        'unit',
-                    ],
-                },
-                'responses': {
-                    'type': 'object',
-                    'properties': {
-                        'temperature': {
-                            'type': 'integer',
-                            'description': "城市气温",
-                        },
-                        'unit': {
-                            'type': 'string',
-                            'enum': [
-                                '摄氏度',
-                                '华氏度',
-                            ],
-                        },
-                    },
-                },
-            }
-        ]
-    )
-    #st.write(response)
-    return response
+with st.sidebar:
+    st.header("设置")
+    st.caption("留空时使用环境变量 QIANFAN_ACCESS_KEY / QIANFAN_SECRET_KEY 或 QIANFAN_AK / QIANFAN_SK。")
+    ak = st.text_input("API Key (AK)", type="password", value=os.getenv("QIANFAN_AK", ""))
+    sk = st.text_input("Secret Key (SK)", type="password", value=os.getenv("QIANFAN_SK", ""))
+    model = st.selectbox("模型", MODELS)
+    if st.button("清空对话"):
+        st.session_state.history = []
+        st.rerun()
 
-chat_comp = qianfan.ChatCompletion()
-prompt1 ="114514+973580等于多少？"
-prompt2 = "南京路街道附近50元的午餐有哪些推荐？"
-prompt3 = "肯德基疯狂星期四不错，就买这个20号的肯德基疯狂星期四了"
-prompt4 = "新入职员工李红在HR部门工作，她有研究生文凭。她的工号是918604。"
-prompt5 = "张三的工号是114514，他本科毕业，在技术部工作。"
-prompt6 = "深圳市今天气温如何？"
-prompt_list = [prompt1,prompt2,prompt3,prompt4,prompt5,prompt6]
-employee_list_df={}
-round_no = 1
+    st.subheader("示例问题")
+    for prompt in EXAMPLE_PROMPTS:
+        if st.button(prompt, use_container_width=True):
+            st.session_state.pending_prompt = prompt
 
-for questions in prompt_list:
-    messages = [{"role": "user", "content": questions}]
-    response = eb_call(questions,round,messages)
-    #st.write(response['result'])
-    #st.write(type(response))
-    try:
-        response['function_call']
-        st.write("Function Called")
-        function_call = response['function_call']
-        available_functions  = {'delivery_inquiry': delivery_inquiry,'delivery_order':delivery_order,'get_current_temperature':get_current_temperature,'extract_employee_info':extract_employee_info}
-        fuction_to_call  = available_functions [function_call['name']]
-        args = json.loads(function_call['arguments'])
-        res = fuction_to_call (*list(args.values()))
-        #testest
-        messages.append(
-            {
-                'role': 'assistant',
-                'content': None,
-                'function_call': function_call,
-            }
-        )
-        messages.append(
-            {
-                'role': 'function',
-                'name': function_call['name'],
-                'content': json.dumps(res, ensure_ascii=False),
-            }
-        )
-        #st.write(messages)
-        response = eb_call(questions,round,messages)
-        st.write(response['result'])
+for message in st.session_state.history:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
+        for call in message.get("calls", []):
+            with st.expander(f"🔧 调用了 {call['name']}"):
+                st.code(json.dumps(call, ensure_ascii=False, indent=2), language="json")
 
-    except:
-        st.write("No function called")  
+prompt = st.chat_input("问点什么，例如：深圳市今天气温如何？") or st.session_state.pop("pending_prompt", None)
+
+if prompt:
+    st.session_state.history.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    messages = [{"role": m["role"], "content": m["content"]} for m in st.session_state.history]
+    with st.chat_message("assistant"):
+        try:
+            with st.spinner("思考中..."):
+                answer, calls = run_conversation(
+                    make_qianfan_caller(model, ak or None, sk or None),
+                    messages,
+                    build_registry(st.session_state.employees),
+                )
+        except Exception as exc:  # surface auth/network errors instead of hiding them
+            st.session_state.history.pop()
+            st.error(f"调用失败：{exc}")
+            st.stop()
+        st.markdown(answer)
+        for call in calls:
+            with st.expander(f"🔧 调用了 {call['name']}"):
+                st.code(json.dumps(call, ensure_ascii=False, indent=2), language="json")
+    st.session_state.history.append({"role": "assistant", "content": answer, "calls": calls})
+
+if st.session_state.employees:
+    st.subheader("已录入员工")
+    st.dataframe(pd.DataFrame(st.session_state.employees), use_container_width=True)

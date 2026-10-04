@@ -1,2 +1,4 @@
-qianfan
-streamlit
+qianfan>=0.4
+streamlit>=1.31
+pandas
+requests
