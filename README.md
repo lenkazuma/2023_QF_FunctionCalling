@@ -1,112 +1,81 @@
+# 千帆 Function Calling 演示：ERNIE + Streamlit
 
-# Python Functioncall：Qianfan与Streamlit集成
-
-本项目演示了如何将Qianfan ChatCompletion API与多个Python函数进行集成，执行例如查询员工信息、外卖订购和天气数据等任务。该应用使用Streamlit提供一个简单的Web界面，并通过Qianfan API处理和响应用户查询。
+本项目演示如何用百度千帆 ChatCompletion API 的函数调用（Function Calling）能力，让 ERNIE 大模型根据用户的自然语言自动选择并调用 Python 函数，再基于函数返回结果生成回答。界面使用 Streamlit 聊天组件，可以自由提问，也可以点击示例问题。
 
 ## 特性
 
-- **函数调用**: 提供获取当前温度、外卖订购、员工信息提取等多个功能。
-- **Streamlit界面**: 使用基本的Streamlit界面显示响应结果。
-- **函数调用处理**: 根据Qianfan API的响应，调用相应的功能。
+- **聊天界面**：支持多轮对话，每次函数调用的名称、参数和返回值都可以展开查看。
+- **5 个示例函数**：
+  - `calculate`：安全地计算数学表达式（基于 AST，只允许数字和运算符）；
+  - `get_current_temperature`：通过免费的 [Open-Meteo](https://open-meteo.com/) 查询城市实时气温，无需额外密钥；
+  - `delivery_inquiry` / `delivery_order`：模拟外卖查询（按价格筛选）和下单；
+  - `extract_employee_info`：从一句话中抽取员工信息并录入，录入结果以表格展示。
+- **按名称传参**：模型返回的参数按名字传给函数，参数顺序变化或缺少可选参数都不会出错；参数错误会返回给模型而不是让应用崩溃。
+- **可选模型**：ERNIE-3.5-8K / ERNIE-4.0-8K / ERNIE-Speed-8K。
 
-## 安装依赖
+## 安装
 
-- Python 3.7+
-- 安装所需的Python库：
-
-```bash
-pip install qianfan streamlit
-```
-
-## 如何运行
-
-1. 克隆此仓库：
+需要 Python 3.9+。
 
 ```bash
-git clone https://github.com/your-username/qianfan-chat-function-demo.git
+git clone https://github.com/lenkazuma/QF_FunctionCalling.git
+cd QF_FunctionCalling
+pip install -r requirements.txt
 ```
 
-2. 进入项目目录：
+## 配置千帆凭证
+
+在 [百度智能云千帆控制台](https://console.bce.baidu.com/qianfan/) 获取凭证，任选一种方式：
+
+- 环境变量（推荐）：
+
+  ```bash
+  # 安全认证 Access Key / Secret Key
+  export QIANFAN_ACCESS_KEY=your-access-key
+  export QIANFAN_SECRET_KEY=your-secret-key
+  # 或应用 API Key / Secret Key
+  export QIANFAN_AK=your-api-key
+  export QIANFAN_SK=your-secret-key
+  ```
+
+- 运行后在页面侧边栏填写 AK / SK（只保存在当前会话中）。
+
+## 运行
 
 ```bash
-cd qianfan-chat-function-demo
+streamlit run QFfunction.py
 ```
 
-3. 运行Streamlit应用：
+浏览器打开 <http://localhost:8501>，输入问题或点击侧边栏的示例问题，例如：
+
+- 114514+973580等于多少？
+- 南京路街道附近50元以内的午餐有哪些推荐？
+- 新入职员工李红在HR部门工作，她有研究生文凭。她的工号是918604。
+- 深圳市今天气温如何？
+
+## 项目结构
+
+```
+├── QFfunction.py   # Streamlit 聊天界面
+├── agent.py        # 模型 ↔ 函数调用循环、千帆客户端封装
+├── tools.py        # 函数实现、JSON Schema 定义与调度
+└── tests/          # pytest 测试（不需要千帆凭证）
+```
+
+## 工作流程
+
+1. 用户提问，连同函数的 JSON Schema 一起发送给 ERNIE；
+2. 若模型返回 `function_call`，`tools.dispatch` 按名称执行对应函数；
+3. 函数结果以 `role: function` 消息追加到对话中再次请求模型；
+4. 模型返回最终文字回答（单轮最多连续调用 3 次函数，防止死循环）。
+
+## 测试
 
 ```bash
-streamlit run app.py
+pip install pytest
+pytest -q
 ```
-
-4. 打开浏览器并访问 `http://localhost:8501` 与应用交互。
-
-## 代码概览
-
-### 主要功能
-
-- **get_current_temperature**: 获取指定城市的当前气温。
-  
-  ```python
-  def get_current_temperature(location: str, unit: str) -> dict:
-      return {'temperature': 25, 'unit': '摄氏度'}
-  ```
-
-- **extract_employee_info**: 提取并记录员工信息。
-
-  ```python
-  def extract_employee_info(name: str, department: str, certificate: str, id: int) -> dict:
-      return {'result': True}
-  ```
-
-- **delivery_inquiry**: 根据位置和预期价格查询外卖选项。
-
-  ```python
-  def delivery_inquiry(location: str, expect_price: int) -> dict:
-      return {'id': 20, 'price': '50', 'food': '肯德基疯狂星期四'}
-  ```
-
-- **delivery_order**: 下单外卖。
-
-  ```python
-  def delivery_order(id: str, food: str) -> dict:
-      return {'result': True}
-  ```
-
-### `eb_call` 函数
-
-此函数处理调用Qianfan API，处理用户查询并根据API的响应调用相应的函数。
-
-```python
-def eb_call(prompt, round, messages):
-    # API调用和响应处理代码
-    return response
-```
-
-### 示例工作流程
-
-1. **初始提示**: 应用接收用户的初始查询。
-2. **函数调用**: 应用分析查询内容，决定调用哪个功能（例如天气、员工信息等）。
-3. **执行函数**: 根据函数调用，应用执行相应的Python函数。
-4. **返回响应**: 结果通过Streamlit显示。
-
-### 示例提示
-
-```python
-prompt_list = [
-    "114514+973580等于多少？",
-    "南京路街道附近50元的午餐有哪些推荐？",
-    "肯德基疯狂星期四不错，就买这个20号的肯德基疯狂星期四了",
-    "新入职员工李红在HR部门工作，她有研究生文凭。她的工号是918604。",
-    "张三的工号是114514，他本科毕业，在技术部工作。",
-    "深圳市今天气温如何？"
-]
-```
-
-### 期望的响应
-
-- **调用函数**: 应用将显示调用的函数名称。
-- **结果**: 调用结果（例如温度、外卖选项等）将通过Streamlit显示。
 
 ## 许可证
 
-此项目遵循MIT许可证 - 详情请参阅[LICENSE](LICENSE)文件。
+本项目遵循 MIT 许可证，详见 [LICENSE](LICENSE)。
