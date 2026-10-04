@@ -37,7 +37,7 @@ with st.sidebar:
 
     st.subheader("示例问题")
     for prompt in EXAMPLE_PROMPTS:
-        if st.button(prompt, use_container_width=True):
+        if st.button(prompt, width="stretch"):
             st.session_state.pending_prompt = prompt
 
 for message in st.session_state.history:
@@ -75,4 +75,4 @@ if prompt:
 
 if st.session_state.employees:
     st.subheader("已录入员工")
-    st.dataframe(pd.DataFrame(st.session_state.employees), use_container_width=True)
+    st.dataframe(pd.DataFrame(st.session_state.employees), width="stretch")
